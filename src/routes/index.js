@@ -1,3 +1,9 @@
+// src/routes/index.js
+// Ce fichier contient les routes API pour la plateforme d'évaluation.
+// Fonctionnalités : authentification, gestion des exercices, soumission des réponses.
+// Note : L'intégration de l'IA (Ollama/DeepSeek) a été désactivée temporairement pour ce livrable.
+
+
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
@@ -91,7 +97,8 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Connexion
+// Route : POST /api/login
+// Description : Authentifie un utilisateur et renvoie un token JWT.
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -132,6 +139,7 @@ router.get('/exercises', authenticateToken, (req, res) => {
 });
 
 // Soumission avec détection de plagiat
+// Soumission sans IA (temporaire)
 router.post('/submissions', authenticateToken, restrictTo('student'), upload.single('file'), async (req, res) => {
   const { student_id, exercise_id } = req.body;
   const file = req.file;
@@ -148,62 +156,15 @@ router.post('/submissions', authenticateToken, restrictTo('student'), upload.sin
   const encryptedBuffer = encryptFile(fileBuffer);
   fs.writeFileSync(file.path, encryptedBuffer);
 
-  const exerciseQuery = 'SELECT correction FROM exercises WHERE id = ?';
-  db.query(exerciseQuery, [exercise_id], async (err, results) => {
+  // Enregistrement sans IA
+  const grade = 0; // Note par défaut (à ajuster manuellement par le professeur)
+  const feedback = "Correction en attente (IA désactivée temporairement)";
+  const maxSimilarity = 0; // Plagiat désactivé pour l'instant
+
+  const query = 'INSERT INTO submissions (student_id, exercise_id, file_path, grade, feedback, plagiarism_score) VALUES (?, ?, ?, ?, ?, ?)';
+  db.query(query, [student_id, exercise_id, file.filename, grade, feedback, maxSimilarity], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (results.length === 0) return res.status(404).json({ error: 'Exercice non trouvé' });
-
-    const correction = results[0].correction || '';
-    const encryptedData = fs.readFileSync(file.path);
-    const decryptedBuffer = decryptFile(encryptedData);
-    const pdfData = await pdf(decryptedBuffer);
-    const studentAnswer = pdfData.text;
-
-    // Vérification du plagiat
-    const submissionsQuery = 'SELECT file_path FROM submissions WHERE exercise_id = ? AND student_id != ?';
-    db.query(submissionsQuery, [exercise_id, student_id], async (err, pastSubmissions) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      let maxSimilarity = 0;
-      for (const sub of pastSubmissions) {
-        const pastFilePath = path.join(__dirname, '../../uploads', sub.file_path);
-        const pastEncryptedData = fs.readFileSync(pastFilePath);
-        const pastDecryptedBuffer = decryptFile(pastEncryptedData);
-        const pastPdfData = await pdf(pastDecryptedBuffer);
-        const pastAnswer = pastPdfData.text;
-        const similarity = jaccardSimilarity(studentAnswer, pastAnswer);
-        maxSimilarity = Math.max(maxSimilarity, similarity);
-      }
-
-      try {
-        // Appel à Hugging Face pour l'évaluation
-        const response = await axios.post(
-          'https://api-inference.huggingface.co/models/mixtral-8x7b-instruct-v0.1',
-          {
-            inputs: `Évalue cette réponse d’étudiant : "${studentAnswer}" par rapport à la correction : "${correction}". Fournis une note sur 20 et un feedback détaillé en français uniquement, au format suivant : "Note : X/20\nFeedback : [détails en français]".`,
-          },
-          {
-            headers: { Authorization: `Bearer ${process.env.HF_TOKEN}` },
-          }
-        );
-
-        const iaResponse = response.data[0].generated_text;
-        const gradeMatch = iaResponse.match(/Note\s*:\s*(\d+)\/20/);
-        const feedbackMatch = iaResponse.match(/Feedback\s*:\s*(.+)/);
-
-        const grade = gradeMatch ? parseInt(gradeMatch[1], 10) : 0;
-        const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'Aucun feedback fourni';
-
-        const query = 'INSERT INTO submissions (student_id, exercise_id, file_path, grade, feedback, plagiarism_score) VALUES (?, ?, ?, ?, ?, ?)';
-        db.query(query, [student_id, exercise_id, file.filename, grade, feedback, maxSimilarity], (err, result) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.status(201).json({ id: result.insertId, student_id, exercise_id, file_path: file.filename, grade, feedback, plagiarism_score: maxSimilarity });
-        });
-      } catch (error) {
-        console.error('Erreur avec Hugging Face :', error.response ? error.response.data : error.message);
-        res.status(500).json({ error: 'Erreur lors de la correction automatique' });
-      }
-    });
+    res.status(201).json({ id: result.insertId, student_id, exercise_id, file_path: file.filename, grade, feedback, plagiarism_score: maxSimilarity });
   });
 });
 
