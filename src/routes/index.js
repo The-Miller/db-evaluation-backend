@@ -176,13 +176,18 @@ router.post('/submissions', authenticateToken, restrictTo('student'), upload.sin
       }
 
       try {
-        const response = await axios.post('http://localhost:11434/api/generate', {
-          model: 'mistral',
-          prompt: `Évalue cette réponse d’étudiant : "${studentAnswer}" par rapport à la correction : "${correction}". Fournis une note sur 20 et un feedback détaillé en français uniquement, au format suivant : "Note : X/20\nFeedback : [détails en français]".`,
-          stream: false,
-        });
+        // Appel à Hugging Face pour l'évaluation
+        const response = await axios.post(
+          'https://api-inference.huggingface.co/models/mixtral-8x7b-instruct-v0.1',
+          {
+            inputs: `Évalue cette réponse d’étudiant : "${studentAnswer}" par rapport à la correction : "${correction}". Fournis une note sur 20 et un feedback détaillé en français uniquement, au format suivant : "Note : X/20\nFeedback : [détails en français]".`,
+          },
+          {
+            headers: { Authorization: `Bearer ${process.env.HF_TOKEN}` },
+          }
+        );
 
-        const iaResponse = response.data.response;
+        const iaResponse = response.data[0].generated_text;
         const gradeMatch = iaResponse.match(/Note\s*:\s*(\d+)\/20/);
         const feedbackMatch = iaResponse.match(/Feedback\s*:\s*(.+)/);
 
@@ -195,7 +200,7 @@ router.post('/submissions', authenticateToken, restrictTo('student'), upload.sin
           res.status(201).json({ id: result.insertId, student_id, exercise_id, file_path: file.filename, grade, feedback, plagiarism_score: maxSimilarity });
         });
       } catch (error) {
-        console.error('Erreur avec Ollama :', error);
+        console.error('Erreur avec Hugging Face :', error.response ? error.response.data : error.message);
         res.status(500).json({ error: 'Erreur lors de la correction automatique' });
       }
     });
