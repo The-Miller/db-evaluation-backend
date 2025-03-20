@@ -8,6 +8,14 @@ const app = express();
 //const port = process.env.PORT || 5000;
 const port = process.env.PORT || 10000;
 
+const fs = require('fs');
+const path = require('path');
+
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 
 // Middleware
 app.use(cors());
